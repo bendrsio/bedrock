@@ -1,7 +1,7 @@
 {
   "name": "bedrock",
-  "productName": "bedrock",
-  "version": "1.0.0",
+  "productName": "Bedrock",
+  "version": "1.1.0",
   "description": "A modern text editor - built with Electron and React",
   "main": ".webpack/main",
   "scripts": {
@@ -13,7 +13,7 @@
   },
   "keywords": [],
   "author": {
-    "name": "bendrsio",
+    "name": "Ben Desprets",
     "email": "benjy.desprets@gmail.com"
   },
   "license": "MIT",
