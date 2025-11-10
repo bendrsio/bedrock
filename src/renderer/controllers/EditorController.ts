@@ -32,10 +32,10 @@ export class EditorController {
       this.model.moveCursorRight();
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      // this.model.moveCursorUp();
+      this.model.moveCursorUp();
     } else if (event.key === "ArrowDown") {
       event.preventDefault();
-      // this.model.moveCursorDown();
+      this.model.moveCursorDown();
     }
   };
 }

@@ -12,6 +12,8 @@ export interface ITextModel extends EventEmitter {
   deleteChar(): void;
   moveCursorLeft(): void;
   moveCursorRight(): void;
+  moveCursorUp(): void;
+  moveCursorDown(): void;
 }
 
 export interface TextChange {
