@@ -21,6 +21,7 @@ if (!process.env.GITHUB_ACTIONS) {
 
 import { mainConfig } from "./webpack.main.config";
 import { rendererConfig } from "./webpack.renderer.config";
+import { findAvailablePort } from "./scripts/dev-port";
 
 const execFileAsync = promisify(execFile);
 
@@ -80,7 +81,7 @@ function getOsxNotarizeConfig() {
   return undefined;
 }
 
-const config: ForgeConfig = {
+const createConfig = (port: number, loggerPort: number): ForgeConfig => ({
   packagerConfig: {
     asar: true,
     icon: "./src/assets/icon",
@@ -159,6 +160,8 @@ const config: ForgeConfig = {
   plugins: [
     new AutoUnpackNativesPlugin({}),
     new WebpackPlugin({
+      port,
+      loggerPort,
       mainConfig,
       renderer: {
         config: rendererConfig,
@@ -186,6 +189,10 @@ const config: ForgeConfig = {
       [FuseV1Options.OnlyLoadAppFromAsar]: true,
     }),
   ],
-};
+});
 
-export default config;
+export default async (): Promise<ForgeConfig> => {
+  const port = await findAvailablePort(3000);
+  const loggerPort = await findAvailablePort(Math.max(9000, port + 1));
+  return createConfig(port, loggerPort);
+};

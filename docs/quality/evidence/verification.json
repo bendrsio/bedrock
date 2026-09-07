@@ -1,0 +1,21 @@
+{
+  "date": "2026-09-08",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "electron": "43.6.0",
+  "lint": "passed",
+  "typecheck": "passed",
+  "unitChecks": 79,
+  "electronWorkflows": 34,
+  "electronWorkflowDurationSeconds": 35.2,
+  "runtimeDependencyAdvisories": 0,
+  "unpatchedBuildDependencyAdvisories": 3,
+  "signed": false,
+  "notarized": false,
+  "deployed": false,
+  "developmentPortCollision": {
+    "rendererPort": 3001,
+    "loggerPort": 9001,
+    "computerUseVerified": true
+  }
+}

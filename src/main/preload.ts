@@ -9,9 +9,22 @@ import {
   OpenSpecificFilePayload,
   SaveFileResult,
   ExportFilePayload,
+  WorkspaceInfo,
 } from "../shared/types";
 
 contextBridge.exposeInMainWorld("electronAPI", {
+  resolveImage: (path: string): Promise<string | null> =>
+    ipcRenderer.invoke("file:resolve-image", path),
+  openNoteLink: (path: string): Promise<boolean> =>
+    ipcRenderer.invoke("file:open-note-link", path),
+  getWorkspace: (): Promise<WorkspaceInfo> =>
+    ipcRenderer.invoke("workspace:get"),
+  selectRootFolder: (
+    choice: "default" | "choose",
+  ): Promise<WorkspaceInfo | null> =>
+    ipcRenderer.invoke("workspace:select-root", choice),
+  createNote: (): Promise<OpenFileResult> =>
+    ipcRenderer.invoke("workspace:create-note"),
   openFile: (): Promise<OpenFileResult | null> =>
     ipcRenderer.invoke("file:open"),
   saveFile: (payload: SaveFilePayload): Promise<SaveFileResult | null> =>
@@ -42,11 +55,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   consumePendingExternalOpenFiles: (): Promise<OpenSpecificFilePayload[]> =>
     ipcRenderer.invoke("file:consume-pending-external-open"),
   onExternalOpenFile: (
-    callback: (payload: OpenSpecificFilePayload) => void
+    callback: (payload: OpenSpecificFilePayload) => void,
   ): (() => void) => {
     const listener = (
       _event: Electron.IpcRendererEvent,
-      payload: OpenSpecificFilePayload
+      payload: OpenSpecificFilePayload,
     ) => callback(payload);
     ipcRenderer.on("file:open-external", listener);
     return () => {
@@ -59,7 +72,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   test:
     process.env.BEDROCK_E2E === "1"
       ? {
-          configure: (config: BedrockTestConfig): Promise<BedrockTestState | null> =>
+          configure: (
+            config: BedrockTestConfig,
+          ): Promise<BedrockTestState | null> =>
             ipcRenderer.invoke("test:configure", config),
           getState: (): Promise<BedrockTestState | null> =>
             ipcRenderer.invoke("test:get-state"),

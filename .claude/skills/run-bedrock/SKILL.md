@@ -21,7 +21,7 @@ pnpm install
 
 ## Build
 
-The driver launches the most recent compiled main entry under `.webpack/`.
+The driver launches `.webpack/<current architecture>/main/index.js` from the last package build.
 Build it with:
 
 ```bash
@@ -32,6 +32,11 @@ Rebuild after any `src/` change — the driver runs the compiled bundle, not the
 source.
 
 ## Run (agent path)
+
+The app now starts on Home. On a fresh disposable profile, run
+`click button:has-text("Use suggested folder")` to set up an isolated root,
+then `click [aria-label="New"]` before typing. The test-mode suggested folder
+is under the disposable user-data directory, not the user's Documents folder.
 
 The driver executes commands strictly in order (each waits for the previous),
 so you can send them back-to-back. One-shot flows can be piped on stdin:
@@ -106,9 +111,7 @@ pnpm run test:e2e    # rebuilds the package, then Playwright e2e (tests/e2e/)
   if no path is queued the main process falls through to a real macOS dialog
   (`src/main/index.ts`, `file:open` handler) that the driver cannot dismiss.
 - **The driver runs the compiled `.webpack/` bundle, not `src/`.** Source
-  edits are invisible until you re-run `pnpm run build:e2e`. Stale builds from
-  earlier runs linger; the driver picks the most recently modified
-  `main/index.js` under `.webpack/`.
+  edits are invisible until you re-run `pnpm run build:e2e`. The driver uses the current architecture's package entry, so a dev-server build does not replace it.
 - **Import `_electron` from `@playwright/test`, not `playwright`** — pnpm's
   strict node_modules only exposes declared dependencies, and only
   `@playwright/test` is declared.

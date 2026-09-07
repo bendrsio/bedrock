@@ -1,3 +1,6 @@
+import { normalizeDocumentText } from "./editor/codemirror/documentText";
+import { revealHeading } from "./editor/codemirror/links";
+import { focusMarkdownEditor } from "./editor/codemirror/tableCellContext";
 import React, {
   useState,
   useCallback,
@@ -7,14 +10,18 @@ import React, {
 } from "react";
 import { createRoot } from "react-dom/client";
 import { CodeMirrorEditor } from "./components/CodeMirrorEditor";
+import { CommandPalette } from "./components/CommandPalette";
+import { navigateTable } from "./editor/codemirror/tables";
 import { Chrome } from "./components/Chrome";
+import { Home } from "./components/Home";
 import SettingsModal from "./components/SettingsModal";
 import {
   OpenSpecificFilePayload,
   RenderMode,
   SelectionStats,
+  WorkspaceInfo,
 } from "../shared/types";
-import { markdownToHtml } from "./lib/export";
+import { markdownToExportHtml } from "./lib/export";
 import { getDocumentStats } from "./lib/documentStats";
 import {
   defaultSettings,
@@ -28,8 +35,10 @@ import { clampKeyBindings, eventToBinding } from "./keybindings";
 import { applyTheme, ThemeName } from "./theme";
 import { defaultKeymap, indentWithTab } from "@codemirror/commands";
 import { EditorView, KeyBinding } from "@codemirror/view";
+import { setEditingLocked } from "./editor/codemirror/editingLock";
 import { markdownKeymap } from "@codemirror/lang-markdown";
 import {
+  CommandRunContext,
   createCommandRegistry,
   createCommandRunner,
 } from "./commands/commandSystem";
@@ -63,21 +72,35 @@ const editorFontFamilyValues: Record<UserSettings["editorFontFamily"], string> =
 const App = () => {
   const [doc, setDoc] = useState<string>("");
   const [filePath, setFilePath] = useState<string | null>(null);
-  const [isDirty, setIsDirty] = useState(false);
+  const [savedDoc, setSavedDoc] = useState("");
+  const isDirty = doc !== savedDoc;
+  const [screen, setScreen] = useState<
+    { kind: "home" } | { kind: "editor"; session: number }
+  >({ kind: "home" });
+  const nextSession = useRef(0);
+  const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const pendingEditorFocus = useRef(false);
+  const pendingHeading = useRef<string | null>(null);
+  const activeOperation = useRef(Promise.resolve());
+  const currentDocument = useRef({ doc, screen });
+  currentDocument.current = { doc, screen };
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectionStats, setSelectionStats] = useState<SelectionStats>({
     hasSelection: false,
     words: 0,
     chars: 0,
   });
-  const [settings, setSettings] = useState<UserSettings>(defaultSettings);
+  const [settings, setSettings] = useState<UserSettings>(() => loadSettings());
   const [isInitializing, setIsInitializing] = useState(true);
-  const suppressDirtyRef = useRef(false);
   const editorViewRef = useRef<EditorView | null>(null);
   const externalOpenSequenceRef = useRef(Promise.resolve());
   const commandRegistry = useMemo(() => createCommandRegistry(), []);
   const [systemPrefersDark, setSystemPrefersDark] = useState<boolean>(
-    () => window.matchMedia("(prefers-color-scheme: dark)").matches
+    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
   );
   useEffect(() => {
     const handleDevToolsShortcut = (event: KeyboardEvent) => {
@@ -94,17 +117,60 @@ const App = () => {
     return () => window.removeEventListener("keydown", handleDevToolsShortcut);
   }, []);
 
+  useEffect(() => {
+    const showError = (event: Event) => {
+      if (event instanceof CustomEvent && typeof event.detail === "string")
+        setWorkspaceError(event.detail);
+    };
+    window.addEventListener("bedrock:error", showError);
+    return () => window.removeEventListener("bedrock:error", showError);
+  }, []);
+
   const handleDocChange = useCallback((next: string) => {
     setDoc(next);
-    if (suppressDirtyRef.current) {
-      suppressDirtyRef.current = false;
-      return;
-    }
-    setIsDirty(true);
+  }, []);
+
+  const perform = useCallback((operation: () => Promise<void>) => {
+    if (busyRef.current) return activeOperation.current;
+    pendingEditorFocus.current =
+      editorViewRef.current?.dom.contains(document.activeElement) ?? false;
+    busyRef.current = true;
+    setEditingLocked(editorViewRef.current, true);
+    setBusy(true);
+    setWorkspaceError(null);
+    const completion = (async () => {
+      try {
+        await operation();
+      } catch (error) {
+        setWorkspaceError(
+          error instanceof Error
+            ? error.message
+            : "Unable to access your files.",
+        );
+      } finally {
+        busyRef.current = false;
+        setEditingLocked(editorViewRef.current, false);
+        setBusy(false);
+        if (pendingEditorFocus.current && editorViewRef.current) {
+          pendingEditorFocus.current = false;
+          focusMarkdownEditor(editorViewRef.current);
+        }
+      }
+    })();
+    activeOperation.current = completion;
+    return completion;
+  }, []);
+
+  const refreshWorkspace = useCallback(async () => {
+    setWorkspace(await window.electronAPI.getWorkspace());
   }, []);
 
   const focusEditor = useCallback(() => {
-    editorViewRef.current?.focus();
+    if (busyRef.current) {
+      pendingEditorFocus.current = true;
+      return;
+    }
+    if (editorViewRef.current) focusMarkdownEditor(editorViewRef.current);
   }, []);
 
   useEffect(() => {
@@ -131,15 +197,15 @@ const App = () => {
   useEffect(() => {
     document.documentElement.style.setProperty(
       "--editor-font-size",
-      `${settings.textSize}px`
+      `${settings.textSize}px`,
     );
     document.documentElement.style.setProperty(
       "--editor-font-family",
-      editorFontFamilyValues[settings.editorFontFamily]
+      editorFontFamilyValues[settings.editorFontFamily],
     );
     document.documentElement.style.setProperty(
       "--ui-font-size",
-      `${(settings.uiScale / 100) * 15}px`
+      `${(settings.uiScale / 100) * 15}px`,
     );
     saveSettings(settings);
   }, [settings]);
@@ -151,8 +217,11 @@ const App = () => {
   const fileName = useMemo(() => getDisplayFileName(filePath), [filePath]);
 
   useEffect(() => {
-    document.title = buildWindowTitle(fileName, isDirty);
-  }, [fileName, isDirty]);
+    document.title =
+      screen.kind === "home"
+        ? "Home — Bedrock"
+        : buildWindowTitle(fileName, isDirty);
+  }, [fileName, isDirty, screen]);
 
   useEffect(() => {
     if (isInitializing) {
@@ -173,7 +242,7 @@ const App = () => {
   }, [filePath, isInitializing]);
 
   const confirmDiscardIfNeeded = useCallback(
-    async (action: "open" | "new"): Promise<boolean> => {
+    async (action: "open" | "new" | "home"): Promise<boolean> => {
       if (!isDirty) {
         return true;
       }
@@ -183,22 +252,23 @@ const App = () => {
         fileName,
       });
     },
-    [fileName, isDirty]
+    [fileName, isDirty],
   );
 
   const replaceDocument = useCallback(
-    (nextDoc: string, nextFilePath: string | null) => {
-      suppressDirtyRef.current = true;
-      setDoc(nextDoc);
+    (nextDoc: string, nextFilePath: string | null, fragment?: string) => {
+      pendingHeading.current = fragment ?? null;
+      const normalized = normalizeDocumentText(nextDoc);
+      setDoc(normalized);
+      setSavedDoc(normalized);
       setFilePath(nextFilePath);
-      setIsDirty(false);
-      focusEditor();
+      setScreen({ kind: "editor", session: ++nextSession.current });
     },
-    [focusEditor]
+    [focusEditor],
   );
 
   const handleExternalOpen = useCallback(
-    async ({ filePath: nextFilePath }: OpenSpecificFilePayload) => {
+    async ({ filePath: nextFilePath, fragment }: OpenSpecificFilePayload) => {
       const proceed = await confirmDiscardIfNeeded("open");
       if (!proceed) {
         focusEditor();
@@ -207,130 +277,173 @@ const App = () => {
 
       const result = await window.electronAPI.readFile(nextFilePath);
       if (!result) {
-        focusEditor();
-        return;
+        throw new Error(
+          `Unable to open ${getDisplayFileName(nextFilePath)}. It may have been moved or deleted.`,
+        );
       }
 
-      replaceDocument(result.content, result.filePath);
+      replaceDocument(result.content, result.filePath, fragment);
+      await refreshWorkspace();
     },
-    [confirmDiscardIfNeeded, focusEditor, replaceDocument]
+    [confirmDiscardIfNeeded, focusEditor, replaceDocument, refreshWorkspace],
   );
 
+  const externalOpenHandler = useRef(handleExternalOpen);
+  externalOpenHandler.current = handleExternalOpen;
   const enqueueExternalOpen = useCallback(
     (payload: OpenSpecificFilePayload) => {
       externalOpenSequenceRef.current = externalOpenSequenceRef.current
         .then(async () => {
-          await handleExternalOpen(payload);
+          // Wait for navigation/saves and a render before reading the current
+          // document's discard handler. Finder opens must not bypass the lock.
+          await activeOperation.current;
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve()),
+          );
+          if (busyRef.current) await activeOperation.current;
+          await perform(() => externalOpenHandler.current(payload));
         })
         .catch((error) => {
           console.error("Failed to handle external open:", error);
         });
     },
-    [handleExternalOpen]
+    [perform],
   );
 
   useEffect(() => {
-    const loaded = loadSettings();
-    setSettings(loaded);
+    void perform(refreshWorkspace).finally(() => setIsInitializing(false));
+  }, [perform, refreshWorkspace]);
 
-    const initialize = async () => {
-      try {
-        const pendingExternalOpenFiles =
-          await window.electronAPI.consumePendingExternalOpenFiles();
+  const handleHome = useCallback(async () => {
+    await perform(async () => {
+      if (!(await confirmDiscardIfNeeded("home"))) return;
+      await refreshWorkspace();
+      setScreen({ kind: "home" });
+      setDoc("");
+      setSavedDoc("");
+      setFilePath(null);
+      editorViewRef.current = null;
+    });
+  }, [perform, confirmDiscardIfNeeded, refreshWorkspace]);
 
-        if (pendingExternalOpenFiles.length > 0) {
-          for (const payload of pendingExternalOpenFiles) {
-            const result = await window.electronAPI.readFile(payload.filePath);
-            if (result) {
-              replaceDocument(result.content, result.filePath);
-            }
-          }
-        } else if (loaded.openLastFileOnStartup && loaded.lastOpenedFilePath) {
-          try {
-            const result = await window.electronAPI.readFile(
-              loaded.lastOpenedFilePath
-            );
-            if (result) {
-              replaceDocument(result.content, result.filePath);
-            }
-          } catch (error) {
-            console.error("Failed to open last file on startup:", error);
-          }
-        }
-      } catch (error) {
-        console.error("Failed during app initialization:", error);
-      } finally {
-        setIsInitializing(false);
-      }
-    };
-
-    void initialize();
-  }, [replaceDocument]);
+  const handleSelectRoot = useCallback(
+    async (choice: "default" | "choose") => {
+      await perform(async () => {
+        if (!(await confirmDiscardIfNeeded("home"))) return;
+        const result = await window.electronAPI.selectRootFolder(choice);
+        if (!result) return;
+        setWorkspace(result);
+        setScreen({ kind: "home" });
+        setDoc("");
+        setSavedDoc("");
+        setFilePath(null);
+        editorViewRef.current = null;
+      });
+    },
+    [perform, confirmDiscardIfNeeded],
+  );
 
   const handleOpen = useCallback(async () => {
-    const proceed = await confirmDiscardIfNeeded("open");
-    if (!proceed) {
-      focusEditor();
-      return;
-    }
+    if (!workspace?.rootPath) return;
+    await perform(async () => {
+      const proceed = await confirmDiscardIfNeeded("open");
+      if (!proceed) {
+        focusEditor();
+        return;
+      }
 
-    const result = await window.electronAPI.openFile();
-    if (!result) {
-      focusEditor();
-      return;
-    }
+      const result = await window.electronAPI.openFile();
+      if (!result) {
+        focusEditor();
+        return;
+      }
 
-    replaceDocument(result.content, result.filePath);
-  }, [confirmDiscardIfNeeded, focusEditor, replaceDocument]);
+      replaceDocument(result.content, result.filePath);
+      await refreshWorkspace();
+    });
+  }, [
+    workspace,
+    perform,
+    confirmDiscardIfNeeded,
+    focusEditor,
+    replaceDocument,
+    refreshWorkspace,
+  ]);
 
   const handleNew = useCallback(async () => {
-    const proceed = await confirmDiscardIfNeeded("new");
-    if (!proceed) {
-      focusEditor();
-      return;
-    }
+    if (!workspace?.rootPath) return;
+    await perform(async () => {
+      const proceed = await confirmDiscardIfNeeded("new");
+      if (!proceed) {
+        focusEditor();
+        return;
+      }
 
-    suppressDirtyRef.current = true;
-    setDoc("");
-    setFilePath(null);
-    setIsDirty(false);
-    focusEditor();
-  }, [confirmDiscardIfNeeded, focusEditor]);
+      const result = await window.electronAPI.createNote();
+      replaceDocument(result.content, result.filePath);
+      await refreshWorkspace();
+    });
+  }, [
+    workspace,
+    perform,
+    confirmDiscardIfNeeded,
+    focusEditor,
+    replaceDocument,
+    refreshWorkspace,
+  ]);
 
   const handleSave = useCallback(async () => {
-    const content = doc ?? "";
+    if (screen.kind !== "editor") return;
+    await perform(async () => {
+      const content = doc ?? "";
 
-    const result = await window.electronAPI.saveFile({
-      filePath: filePath ?? undefined,
-      content,
-    });
+      const result = await window.electronAPI.saveFile({
+        filePath: filePath ?? undefined,
+        content,
+      });
 
-    if (!result) {
+      if (!result) {
+        focusEditor();
+        return;
+      }
+
+      if (
+        currentDocument.current.screen.kind !== "editor" ||
+        currentDocument.current.screen.session !== screen.session
+      )
+        return;
+      setFilePath(result.filePath);
+      setSavedDoc(content);
+      await refreshWorkspace();
       focusEditor();
-      return;
-    }
-
-    setFilePath(result.filePath);
-    setIsDirty(false);
-    focusEditor();
-  }, [doc, filePath, focusEditor]);
+    });
+  }, [doc, filePath, focusEditor, screen, perform, refreshWorkspace]);
 
   const handleSaveAs = useCallback(async () => {
-    const content = doc ?? "";
+    if (screen.kind !== "editor") return;
+    await perform(async () => {
+      const content = doc ?? "";
 
-    const result = await window.electronAPI.saveFile({
-      content,
-    });
+      const result = await window.electronAPI.saveFile({
+        content,
+      });
 
-    if (!result) {
+      if (!result) {
+        focusEditor();
+        return;
+      }
+
+      if (
+        currentDocument.current.screen.kind !== "editor" ||
+        currentDocument.current.screen.session !== screen.session
+      )
+        return;
+      setFilePath(result.filePath);
+      setSavedDoc(content);
+      await refreshWorkspace();
       focusEditor();
-      return;
-    }
-
-    setFilePath(result.filePath);
-    setIsDirty(false);
-    focusEditor();
-  }, [doc, focusEditor]);
+    });
+  }, [doc, focusEditor, screen, perform, refreshWorkspace]);
 
   const handleOpenSettings = useCallback(() => {
     setIsSettingsOpen(true);
@@ -360,23 +473,25 @@ const App = () => {
     setSettings(defaultSettings);
   }, []);
 
-  const commands = useMemo(() => {
-    return createCommandRunner(commandRegistry, {
-      getEditorView: () => editorViewRef.current,
-      newFile: handleNew,
-      openFile: handleOpen,
-      saveFile: handleSave,
-      saveFileAs: handleSaveAs,
-      openSettings: handleOpenSettings,
-      setTheme: (theme) => {
-        setSettings((prev) => ({
-          ...prev,
-          followSystem: false,
-          theme,
-        }));
-      },
-      exportFile: async (format) => {
-        const content = markdownToHtml(doc);
+  const commandContext: CommandRunContext = {
+    getEditorView: () => (busyRef.current ? null : editorViewRef.current),
+    newFile: handleNew,
+    openFile: handleOpen,
+    saveFile: handleSave,
+    saveFileAs: handleSaveAs,
+    openSettings: handleOpenSettings,
+    openCommandPalette: () => setIsPaletteOpen(true),
+    setTheme: (theme) => {
+      setSettings((prev) => ({
+        ...prev,
+        followSystem: false,
+        theme,
+      }));
+    },
+    exportFile: async (format) => {
+      if (screen.kind !== "editor") return;
+      await perform(async () => {
+        const content = await markdownToExportHtml(doc);
         const defaultFileName = fileName.endsWith(".md")
           ? fileName.slice(0, -3)
           : fileName;
@@ -385,27 +500,39 @@ const App = () => {
           format,
           defaultFileName,
         });
-      },
-    });
-  }, [
-    commandRegistry,
-    doc,
-    handleOpen,
-    handleOpenSettings,
-    handleSave,
-    handleSaveAs,
-    setSettings,
-  ]);
+      });
+    },
+  };
+  const commandContextRef = useRef(commandContext);
+  commandContextRef.current = commandContext;
+  const commands = useMemo(
+    () =>
+      createCommandRunner(commandRegistry, {
+        getEditorView: () => commandContextRef.current.getEditorView(),
+        newFile: () => commandContextRef.current.newFile(),
+        openFile: () => commandContextRef.current.openFile(),
+        saveFile: () => commandContextRef.current.saveFile(),
+        saveFileAs: () => commandContextRef.current.saveFileAs(),
+        openSettings: () => commandContextRef.current.openSettings(),
+        openCommandPalette: () =>
+          commandContextRef.current.openCommandPalette(),
+        setTheme: (theme) => commandContextRef.current.setTheme(theme),
+        exportFile: (format) => commandContextRef.current.exportFile(format),
+      }),
+    [commandRegistry],
+  );
 
   useEffect(() => {
+    if (!workspace?.rootPath || isInitializing) return;
     const unsubscribe = window.electronAPI.onExternalOpenFile((payload) => {
       enqueueExternalOpen(payload);
     });
     window.electronAPI.notifyRendererReady();
     return unsubscribe;
-  }, [enqueueExternalOpen]);
+  }, [enqueueExternalOpen, workspace?.rootPath, isInitializing]);
 
   useEffect(() => {
+    if (!workspace?.rootPath || isInitializing) return;
     const flushQueuedExternalOpens = async () => {
       const pendingExternalOpenFiles =
         await window.electronAPI.consumePendingExternalOpenFiles();
@@ -415,7 +542,7 @@ const App = () => {
     };
 
     void flushQueuedExternalOpens();
-  }, [enqueueExternalOpen]);
+  }, [enqueueExternalOpen, workspace?.rootPath, isInitializing]);
 
   useEffect(() => {
     const unsubscribe = window.electronAPI.onFind(() => {
@@ -425,7 +552,7 @@ const App = () => {
   }, [commands]);
 
   useEffect(() => {
-    if (isSettingsOpen) {
+    if (isSettingsOpen || isPaletteOpen) {
       return;
     }
 
@@ -451,9 +578,10 @@ const App = () => {
       void commands.run(id);
     };
 
-    window.addEventListener("keydown", handleGlobalShortcut);
-    return () => window.removeEventListener("keydown", handleGlobalShortcut);
-  }, [commands, isSettingsOpen, settings]);
+    window.addEventListener("keydown", handleGlobalShortcut, true);
+    return () =>
+      window.removeEventListener("keydown", handleGlobalShortcut, true);
+  }, [commands, isSettingsOpen, isPaletteOpen, settings]);
 
   const displayLabel = formatFileName(fileName, isDirty);
   const documentStats = useMemo(() => getDocumentStats(doc), [doc]);
@@ -461,16 +589,21 @@ const App = () => {
   const keyBindings = useMemo<KeyBinding[]>(() => {
     return [
       ...commands.buildCodeMirrorKeymap(settings),
+      { key: "Tab", run: navigateTable(1) },
+      { key: "Shift-Tab", run: navigateTable(-1) },
       indentWithTab,
-      ...defaultKeymap,
       ...markdownKeymap,
+      ...defaultKeymap,
     ];
   }, [commands, settings]);
 
   return (
     <>
       <Chrome
-        title={displayLabel}
+        title={screen.kind === "home" ? "Home" : displayLabel}
+        isHome={screen.kind === "home"}
+        busy={busy || isInitializing || !workspace?.rootPath}
+        onHome={() => void handleHome()}
         onNew={() => void commands.run("file.new")}
         onOpen={() => void commands.run("file.open")}
         onSave={() => void commands.run("file.save")}
@@ -482,28 +615,69 @@ const App = () => {
         stats={documentStats}
         selectionStats={selectionStats}
       >
-        <CodeMirrorEditor
-          value={doc}
-          renderMode={renderMode}
-          theme={activeTheme}
-          textSize={settings.textSize}
-          settings={settings}
-          commandRegistry={commandRegistry}
-          commands={commands}
-          keyBindings={keyBindings}
-          placeholder="Start typing…"
-          onChange={handleDocChange}
-          onSelectionStatsChange={setSelectionStats}
-          onReady={(view) => {
-            editorViewRef.current = view;
-            view.focus();
-          }}
-          className="cm-editor-shell"
-        />
+        {workspace?.warning && (
+          <p role="status" className="mb-4 text-sm text-muted-foreground">
+            {workspace.warning}
+          </p>
+        )}
+        {workspaceError ? (
+          <p role="alert" className="mb-4 text-sm text-destructive">
+            {workspaceError}
+          </p>
+        ) : null}
+        {screen.kind === "home" ? (
+          <Home
+            workspace={workspace}
+            busy={busy || isInitializing}
+            onSelectRoot={(choice) => void handleSelectRoot(choice)}
+            onOpenRecent={(recentPath) =>
+              void perform(() => handleExternalOpen({ filePath: recentPath }))
+            }
+          />
+        ) : (
+          <CodeMirrorEditor
+            key={screen.session}
+            value={doc}
+            renderMode={renderMode}
+            theme={activeTheme}
+            textSize={settings.textSize}
+            settings={settings}
+            commandRegistry={commandRegistry}
+            commands={commands}
+            keyBindings={keyBindings}
+            placeholder="Start typing…"
+            onChange={handleDocChange}
+            onSelectionStatsChange={setSelectionStats}
+            onReady={(view) => {
+              editorViewRef.current = view;
+              setEditingLocked(view, busyRef.current);
+              if (pendingHeading.current) {
+                revealHeading(view, pendingHeading.current);
+                pendingHeading.current = null;
+              }
+              focusEditor();
+            }}
+            className="cm-editor-shell"
+          />
+        )}
       </Chrome>
 
+      {isPaletteOpen && (
+        <CommandPalette
+          registry={commandRegistry}
+          commands={commands}
+          settings={settings}
+          hasEditor={screen.kind === "editor" && !busy}
+          restoreFocus={focusEditor}
+          onClose={() => setIsPaletteOpen(false)}
+        />
+      )}
       {isSettingsOpen ? (
         <SettingsModal
+          workspace={workspace}
+          workspaceBusy={busy}
+          workspaceError={workspaceError}
+          onSelectRoot={() => void handleSelectRoot("choose")}
           settings={settings}
           onClose={handleCloseSettings}
           onChange={handleUpdateSettings}

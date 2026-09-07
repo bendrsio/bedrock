@@ -41,23 +41,9 @@ let userDataDir = null;
 let shotCount = 0;
 
 const findCompiledMainEntry = async () => {
-  const webpackDir = path.join(repoRoot, ".webpack");
-  const matches = [];
-  const walk = async (dir) => {
-    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) await walk(fullPath);
-      else if (fullPath.endsWith(path.join("main", "index.js"))) {
-        matches.push({ file: fullPath, mtime: (await fs.stat(fullPath)).mtimeMs });
-      }
-    }
-  };
-  await walk(webpackDir);
-  if (matches.length === 0) {
-    throw new Error("No compiled main entry under .webpack/ — run `pnpm run build:e2e` first.");
-  }
-  matches.sort((a, b) => b.mtime - a.mtime);
-  return matches[0].file;
+  const entry = path.join(repoRoot, ".webpack", process.arch, "main", "index.js");
+  await fs.access(entry);
+  return entry;
 };
 
 const launch = async (externalOpenPaths) => {
@@ -78,7 +64,7 @@ const launch = async (externalOpenPaths) => {
   });
   page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
-  await page.locator(".cm-editor").waitFor();
+  await page.locator('.cm-editor, [aria-label="Root folder setup"], [aria-label="Recently opened files"]').first().waitFor();
   return "launched";
 };
 
@@ -114,8 +100,13 @@ const handlers = {
       .evaluate(() => window.electronAPI.test?.getState() ?? null)
       .then((r) => JSON.stringify(r, null, 2)),
   quit: async () => {
-    if (app) await app.close().catch(() => {});
-    if (userDataDir) await fs.rm(userDataDir, { recursive: true, force: true });
+    if (app) {
+      const child = app.process();
+      const exited = new Promise(resolve => child.exitCode !== null || child.signalCode !== null ? resolve() : child.once("exit", resolve));
+      await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
+      await exited;
+    }
+    if (userDataDir) await fs.rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     process.exit(0);
   },
 };
