@@ -170,6 +170,7 @@ export const bindingToCodeMirrorKey = (binding: string): string => {
 
 export const keyBindingLabels: Record<KeyBindingAction, string> = {
   commandPalette: "Command palette",
+  quickOpen: "Quick open",
   new: "New file",
   open: "Open file",
   save: "Save file",
@@ -192,6 +193,7 @@ export const keyBindingLabels: Record<KeyBindingAction, string> = {
 
 export const clampKeyBindings = (bindings: KeyBindings): KeyBindings => ({
   commandPalette: normalizeBinding(bindings.commandPalette),
+  quickOpen: normalizeBinding(bindings.quickOpen),
   new: normalizeBinding(bindings.new),
   open: normalizeBinding(bindings.open),
   save: normalizeBinding(bindings.save),

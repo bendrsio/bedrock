@@ -79,7 +79,24 @@ export interface ExportFilePayload {
   defaultFileName?: string;
 }
 
+export interface ImportedImage {
+  relativePath: string;
+  alt: string;
+}
+export interface WorkspaceSearchResult {
+  files: Array<{ relativePath: string; name: string; excerpt?: string }>;
+  truncated: boolean;
+}
+export interface ImageImportRequest {
+  documentPath: string;
+  images: Array<{ name: string; bytes: Uint8Array }>;
+}
+
 export interface IElectronAPI {
+  searchWorkspace: (query: string) => Promise<WorkspaceSearchResult>;
+  openWorkspaceNote: (relativePath: string) => Promise<OpenFileResult>;
+  importImages: (request: ImageImportRequest) => Promise<ImportedImage[]>;
+  pasteImage: (documentPath: string) => Promise<ImportedImage[]>;
   resolveImage: (path: string) => Promise<string | null>;
   openNoteLink: (path: string) => Promise<boolean>;
   getWorkspace: () => Promise<WorkspaceInfo>;

@@ -2,6 +2,7 @@ import { ThemeName, isThemeName } from "./theme";
 import { RenderMode } from "../shared/types";
 
 export type KeyBindingAction =
+  | "quickOpen"
   | "commandPalette"
   | "new"
   | "open"
@@ -44,6 +45,7 @@ const STORAGE_KEY = "bedrock:settings";
 
 export const defaultKeyBindings: KeyBindings = {
   commandPalette: "mod+k",
+  quickOpen: "mod+p",
   new: "mod+n",
   open: "mod+o",
   save: "mod+s",
@@ -79,10 +81,17 @@ export const defaultSettings: UserSettings = {
 };
 
 const normalizeKeyBindings = (
-  stored: Partial<KeyBindings> | undefined
+  stored: Partial<KeyBindings> | undefined,
 ): KeyBindings => {
   return {
-    commandPalette: typeof stored?.commandPalette === "string" ? stored.commandPalette : defaultKeyBindings.commandPalette,
+    quickOpen:
+      typeof stored?.quickOpen === "string"
+        ? stored.quickOpen
+        : defaultKeyBindings.quickOpen,
+    commandPalette:
+      typeof stored?.commandPalette === "string"
+        ? stored.commandPalette
+        : defaultKeyBindings.commandPalette,
     new:
       stored?.new && typeof stored.new === "string"
         ? stored.new
@@ -109,7 +118,9 @@ const normalizeKeyBindings = (
         : defaultKeyBindings.italic,
     link:
       stored?.link && typeof stored.link === "string"
-        ? (!stored.commandPalette && stored.link === "mod+k" ? defaultKeyBindings.link : stored.link)
+        ? !stored.commandPalette && stored.link === "mod+k"
+          ? defaultKeyBindings.link
+          : stored.link
         : defaultKeyBindings.link,
     inlineCode:
       stored?.inlineCode && typeof stored.inlineCode === "string"

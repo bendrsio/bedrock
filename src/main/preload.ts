@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
+  ImageImportRequest,
+  ImportedImage,
+  WorkspaceSearchResult,
   BedrockRuntimeInfo,
   BedrockTestConfig,
   BedrockTestState,
@@ -13,6 +16,14 @@ import {
 } from "../shared/types";
 
 contextBridge.exposeInMainWorld("electronAPI", {
+  searchWorkspace: (query: string): Promise<WorkspaceSearchResult> =>
+    ipcRenderer.invoke("workspace:search", query),
+  openWorkspaceNote: (relativePath: string): Promise<OpenFileResult> =>
+    ipcRenderer.invoke("workspace:open-note", relativePath),
+  importImages: (request: ImageImportRequest): Promise<ImportedImage[]> =>
+    ipcRenderer.invoke("workspace:import-images", request),
+  pasteImage: (documentPath: string): Promise<ImportedImage[]> =>
+    ipcRenderer.invoke("workspace:paste-image", documentPath),
   resolveImage: (path: string): Promise<string | null> =>
     ipcRenderer.invoke("file:resolve-image", path),
   openNoteLink: (path: string): Promise<boolean> =>

@@ -44,6 +44,9 @@ export type CommandId = keyof CommandArgs;
 
 export type CommandArgs = {
   "app.commandPalette": void;
+  "file.quickOpen": void;
+  "insert.attachImages": { files: File[] } | undefined;
+  "insert.pasteImage": void;
   "format.heading1": void;
   "format.heading2": void;
   "format.heading3": void;
@@ -114,8 +117,15 @@ type CommandMetadata = {
 export type CommandDefinition = CommandMetadata &
   (
     | {
-        id: Exclude<CommandId, "theme.set">;
+        id: Exclude<CommandId, "theme.set" | "insert.attachImages">;
         run: (ctx: CommandRunContext, args: void) => boolean | Promise<boolean>;
+      }
+    | {
+        id: "insert.attachImages";
+        run: (
+          ctx: CommandRunContext,
+          args: { files: File[] } | undefined,
+        ) => boolean | Promise<boolean>;
       }
     | {
         id: "theme.set";
@@ -134,6 +144,14 @@ export type CommandRunContext = {
   saveFileAs: () => Promise<void>;
   openSettings: () => void;
   openCommandPalette: () => void;
+  quickOpen: () => void;
+  attachImages: (
+    view: EditorView,
+    source:
+      | { kind: "clipboard" }
+      | { kind: "files"; files: File[] }
+      | { kind: "choose" },
+  ) => Promise<void>;
   setTheme: (theme: ThemeName) => void;
   exportFile: (format: "html" | "pdf") => Promise<void>;
 };
@@ -198,7 +216,7 @@ const editorCommands = {
 
 export const createCommandRegistry = (): CommandRegistry => {
   const formatting: Array<{
-    id: Exclude<CommandId, "theme.set">;
+    id: Exclude<CommandId, "theme.set" | "insert.attachImages">;
     title: string;
     category: CommandCategory;
     run: (view: EditorView) => boolean;
@@ -257,7 +275,7 @@ export const createCommandRegistry = (): CommandRegistry => {
     },
     {
       id: "insert.image",
-      title: "Image",
+      title: "Image link",
       category: "Insert",
       run: insertImageCommand,
     },
@@ -370,6 +388,45 @@ export const createCommandRegistry = (): CommandRegistry => {
         return view ? item.run(view) : false;
       },
     })),
+    {
+      id: "file.quickOpen",
+      title: "Quick open…",
+      category: "File",
+      defaultBinding: "mod+p",
+      settingsKey: "quickOpen",
+      isGlobal: true,
+      run: (ctx) => {
+        ctx.quickOpen();
+        return true;
+      },
+    },
+    {
+      id: "insert.attachImages",
+      title: "Attach images…",
+      category: "Insert",
+      requiresEditor: true,
+      run: async (ctx, args) => {
+        const view = ctx.getEditorView();
+        if (!view) return false;
+        await ctx.attachImages(
+          view,
+          args ? { kind: "files", files: args.files } : { kind: "choose" },
+        );
+        return true;
+      },
+    },
+    {
+      id: "insert.pasteImage",
+      title: "Paste image",
+      category: "Insert",
+      requiresEditor: true,
+      run: async (ctx) => {
+        const view = ctx.getEditorView();
+        if (!view) return false;
+        await ctx.attachImages(view, { kind: "clipboard" });
+        return true;
+      },
+    },
     {
       id: "app.commandPalette",
       title: "Command palette",
@@ -746,6 +803,8 @@ export const createCommandRunner = (
     "format.inlineCode",
     "insert.link",
     "insert.image",
+    "insert.attachImages",
+    "insert.pasteImage",
     "insert.math",
   ]);
   const canRun = (id: CommandId, view = ctx.getEditorView()): boolean => {
@@ -823,6 +882,18 @@ export const createCommandRunner = (
     context = { ...context, getEditorView: () => target };
     const cmd = registry.get(id);
     if (cmd.requiresEditor && !context.getEditorView()) return false;
+    if (cmd.id === "insert.attachImages") {
+      if (args === undefined) return cmd.run(context, undefined);
+      if (
+        !args ||
+        typeof args !== "object" ||
+        !("files" in args) ||
+        !Array.isArray(args.files) ||
+        !args.files.every((file) => file instanceof File)
+      )
+        return false;
+      return cmd.run(context, { files: args.files });
+    }
     if (cmd.id === "theme.set") {
       if (
         !args ||
@@ -838,12 +909,16 @@ export const createCommandRunner = (
   };
   const run = <ID extends CommandId>(
     id: ID,
-    ...args: CommandArgs[ID] extends void ? [] : [CommandArgs[ID]]
+    ...args: undefined extends CommandArgs[ID]
+      ? [args?: CommandArgs[ID]]
+      : [CommandArgs[ID]]
   ) => execute(ctx, id, args[0]);
   const runWithView = <ID extends CommandId>(
     id: ID,
     view: EditorView,
-    ...args: CommandArgs[ID] extends void ? [] : [CommandArgs[ID]]
+    ...args: undefined extends CommandArgs[ID]
+      ? [args?: CommandArgs[ID]]
+      : [CommandArgs[ID]]
   ) =>
     execute(
       { ...ctx, getEditorView: () => (ctx.getEditorView() ? view : null) },

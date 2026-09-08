@@ -100,3 +100,29 @@ Fixed the issues reported during manual testing of `Markdown playground.md`:
 Validation: lint and typecheck passed, all 79 unit checks passed, and all 34 Electron workflows passed (35.2 seconds in the final run). Five new workflows cover table entry/exit, wrapped and quoted cells, short rows, mouse/vertical code navigation, and local reference images after multiline footnotes. Independent review findings were fixed and reviewed again.
 
 Visual evidence from the rebuilt app: [palette](evidence/navigation-palette.png), [local image](evidence/navigation-image.png), [JavaScript fence](evidence/navigation-code.png). Checks used a disposable copy of the playground and isolated application profiles.
+
+
+## Workspace files follow-up — 8 September 2026
+
+Added quick-open on Cmd/Ctrl+P and Home, searching filenames, folder paths, and note
+contents directly from the selected root. Searches are debounced, cancellable, and
+bounded; the dialog reports when results are limited. Opening a result uses the
+existing dirty-document confirmation and document-session lifecycle.
+
+Paste, drop, and Attach images commands create uniquely named files in the root's
+`Attachments/` directory and insert relative Markdown links. Import works in table
+cells as well as the main editor. Canonical note paths keep links consistent when a
+note is opened through a symlink. Files stay usable after moving the whole root.
+Imports validate file signatures, sizes, the active document, and folder containment.
+
+Validation: lint and typecheck passed, 82 unit checks passed, and 39 Electron workflows
+passed (38.7 seconds). The five new workflows cover paste/drop, undo/redo, save/reopen,
+table-cell imports, quick-open and dirty-state prompts, unauthorized paths and IPC,
+and notes opened through aliases. An independent review identified the canonical-path
+mismatch; it was fixed and covered by unit and Electron tests.
+
+Inspected screenshots from a disposable Electron profile:
+[quick-open](evidence/workspace-quick-open.png) and
+[pasted image](evidence/workspace-image-paste.png). Native computer use was unavailable
+for this follow-up because the Mac was locked; the Electron driver provided the
+rendered visual checks. The user's existing development process was left running.

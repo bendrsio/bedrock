@@ -1,6 +1,5 @@
 import { normalizeDocumentText } from "./editor/codemirror/documentText";
 import { revealHeading } from "./editor/codemirror/links";
-import { focusMarkdownEditor } from "./editor/codemirror/tableCellContext";
 import React, {
   useState,
   useCallback,
@@ -10,6 +9,12 @@ import React, {
 } from "react";
 import { createRoot } from "react-dom/client";
 import { CodeMirrorEditor } from "./components/CodeMirrorEditor";
+import { QuickOpen } from "./components/QuickOpen";
+import {
+  focusMarkdownEditor,
+  activeTableCell,
+  tableCellOwners,
+} from "./editor/codemirror/tableCellContext";
 import { CommandPalette } from "./components/CommandPalette";
 import { navigateTable } from "./editor/codemirror/tables";
 import { Chrome } from "./components/Chrome";
@@ -87,6 +92,7 @@ const App = () => {
   const activeOperation = useRef(Promise.resolve());
   const currentDocument = useRef({ doc, screen });
   currentDocument.current = { doc, screen };
+  const [isQuickOpen, setIsQuickOpen] = useState(false);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectionStats, setSelectionStats] = useState<SelectionStats>({
@@ -473,6 +479,95 @@ const App = () => {
     setSettings(defaultSettings);
   }, []);
 
+  const handleQuickOpen = useCallback(
+    async (relativePath: string) => {
+      await perform(async () => {
+        if (!(await confirmDiscardIfNeeded("open"))) return;
+        const result = await window.electronAPI.openWorkspaceNote(relativePath);
+        replaceDocument(result.content, result.filePath);
+        await refreshWorkspace();
+      });
+    },
+    [perform, confirmDiscardIfNeeded, replaceDocument, refreshWorkspace],
+  );
+
+  const handleAttachImages: CommandRunContext["attachImages"] = async (
+    requestedView,
+    source,
+  ) => {
+    if (!filePath || busyRef.current) return;
+    const outer = tableCellOwners.get(requestedView) ?? requestedView;
+    const target = activeTableCell(outer) ?? requestedView;
+    if (source.kind === "choose") {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/png,image/jpeg,image/gif,image/webp";
+      input.multiple = true;
+      input.addEventListener(
+        "change",
+        () => {
+          if (input.files?.length && outer === editorViewRef.current)
+            void handleAttachImages(target, {
+              kind: "files",
+              files: Array.from(input.files),
+            });
+        },
+        { once: true },
+      );
+      input.click();
+      return;
+    }
+    const selection = target.state.selection.main;
+    await perform(async () => {
+      if (
+        source.kind === "files" &&
+        (source.files.length < 1 ||
+          source.files.length > 10 ||
+          source.files.reduce((sum, file) => sum + file.size, 0) >
+            25 * 1024 * 1024)
+      )
+        throw new Error("Add up to 10 images, totaling at most 25 MB.");
+      const images =
+        source.kind === "clipboard"
+          ? await window.electronAPI.pasteImage(filePath)
+          : await window.electronAPI.importImages({
+              documentPath: filePath,
+              images: await Promise.all(
+                source.files.map(async (file) => {
+                  if (file.size > 10 * 1024 * 1024)
+                    throw new Error("Images must be at most 10 MB each.");
+                  return {
+                    name: file.name,
+                    bytes: new Uint8Array(await file.arrayBuffer()),
+                  };
+                }),
+              ),
+            });
+      if (outer !== editorViewRef.current || !target.dom.isConnected) return;
+      const markdown = images
+        .map(
+          (image) =>
+            `![${image.alt.replace(/[\\[\]\r\n]/g, " ")}](<${image.relativePath
+              .split("/")
+              .map((part) => encodeURIComponent(part))
+              .join("/")}>)`,
+        )
+        .join(target === outer ? "\n\n" : " ");
+      const insert =
+        target === outer
+          ? `${selection.from && !target.state.doc.sliceString(Math.max(0, selection.from - 2), selection.from).endsWith("\n\n") ? "\n\n" : ""}${markdown}\n\n`
+          : markdown;
+      // File IO holds the document lock. Release it synchronously for this one edit.
+      setEditingLocked(outer, false);
+      target.dispatch({
+        changes: { from: selection.from, to: selection.to, insert },
+        selection: { anchor: selection.from + insert.length },
+        userEvent: "input.paste",
+        scrollIntoView: true,
+      });
+    });
+  };
+
   const commandContext: CommandRunContext = {
     getEditorView: () => (busyRef.current ? null : editorViewRef.current),
     newFile: handleNew,
@@ -481,6 +576,10 @@ const App = () => {
     saveFileAs: handleSaveAs,
     openSettings: handleOpenSettings,
     openCommandPalette: () => setIsPaletteOpen(true),
+    quickOpen: () => {
+      if (workspace?.rootPath && !busyRef.current) setIsQuickOpen(true);
+    },
+    attachImages: handleAttachImages,
     setTheme: (theme) => {
       setSettings((prev) => ({
         ...prev,
@@ -514,6 +613,9 @@ const App = () => {
         saveFile: () => commandContextRef.current.saveFile(),
         saveFileAs: () => commandContextRef.current.saveFileAs(),
         openSettings: () => commandContextRef.current.openSettings(),
+        quickOpen: () => commandContextRef.current.quickOpen(),
+        attachImages: (view, source) =>
+          commandContextRef.current.attachImages(view, source),
         openCommandPalette: () =>
           commandContextRef.current.openCommandPalette(),
         setTheme: (theme) => commandContextRef.current.setTheme(theme),
@@ -552,7 +654,7 @@ const App = () => {
   }, [commands]);
 
   useEffect(() => {
-    if (isSettingsOpen || isPaletteOpen) {
+    if (isSettingsOpen || isPaletteOpen || isQuickOpen) {
       return;
     }
 
@@ -581,7 +683,7 @@ const App = () => {
     window.addEventListener("keydown", handleGlobalShortcut, true);
     return () =>
       window.removeEventListener("keydown", handleGlobalShortcut, true);
-  }, [commands, isSettingsOpen, isPaletteOpen, settings]);
+  }, [commands, isSettingsOpen, isPaletteOpen, isQuickOpen, settings]);
 
   const displayLabel = formatFileName(fileName, isDirty);
   const documentStats = useMemo(() => getDocumentStats(doc), [doc]);
@@ -630,6 +732,7 @@ const App = () => {
             workspace={workspace}
             busy={busy || isInitializing}
             onSelectRoot={(choice) => void handleSelectRoot(choice)}
+            onQuickOpen={() => void commands.run("file.quickOpen")}
             onOpenRecent={(recentPath) =>
               void perform(() => handleExternalOpen({ filePath: recentPath }))
             }
@@ -662,6 +765,13 @@ const App = () => {
         )}
       </Chrome>
 
+      {isQuickOpen && (
+        <QuickOpen
+          onClose={() => setIsQuickOpen(false)}
+          restoreFocus={focusEditor}
+          onOpen={(path) => void handleQuickOpen(path)}
+        />
+      )}
       {isPaletteOpen && (
         <CommandPalette
           registry={commandRegistry}

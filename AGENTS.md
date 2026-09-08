@@ -116,6 +116,8 @@ This document gives code-aware agents a concise mental model of Bedrock’s arch
 
 ## Scratchpad — Features & Changes
 
+- 2026-09-08: Added Cmd/Ctrl+P quick-open for workspace filenames, paths, and contents, plus paste/drop/attach image commands. `src/main/workspaceFiles.ts` owns bounded search and exclusive attachment writes; `QuickOpen.tsx` owns the search dialog. Images live in root `Attachments/` with links relative to the canonical note path. All entry points use the command registry. Added filesystem and Electron tests for portability, aliases, table-cell paste, dirty-state navigation, and IPC boundaries.
+
 - 2026-09-08: Added arrow entry/exit and cell navigation for rendered tables, including quotes, wrapped text, and virtual cells in short rows. Table spacing now uses measured padding to preserve cursor geometry below tables. Reference definitions retain paragraph boundaries and indentation; the command palette groups categories with a compact search layout. Follow-up coverage: `tests/e2e/navigation.e2e.spec.ts`.
 
 - 2026-09-08: Markdown core pass added persistent active heading styles, nested inline formatting, parser-based lists/tasks/rules/fences, images, references, footnotes, math, safe HTML, frontmatter, and a shared command palette. Tables stay rendered in both modes and support cell editing, spreadsheet paste, row/column operations, and shared undo. File writes and exports are atomic, external edits are protected, original text encoding markers/line endings/permissions are preserved, IPC is restricted to the trusted frame, Electron is updated, and telemetry omits private note data. See `docs/quality/core-pass.md` for validation and remaining release constraints.

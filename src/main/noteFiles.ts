@@ -168,7 +168,7 @@ export async function resolveNoteResource(
     throw new Error("Use a relative path for note resources.");
   const root = await fs.realpath(rootPath);
   const resolved = await fs.realpath(
-    path.resolve(path.dirname(documentPath), decoded),
+    path.resolve(path.dirname(await fs.realpath(documentPath)), decoded),
   );
   const relative = path.relative(root, resolved);
   if (

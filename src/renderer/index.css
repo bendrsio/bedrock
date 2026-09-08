@@ -522,3 +522,10 @@ body {
 
 .cm-line.cm-md-atxheading6 { font-size: 1em; color: var(--muted-text); }
 .cm-md-footnote-definition { font-size: .9em; color: var(--muted-text); }
+
+.quick-open [role="option"] { justify-content: flex-start; align-items: flex-start; gap: 10px; }
+.quick-open [role="option"] > svg { flex-shrink: 0; margin-top: 3px; color: var(--muted-text); }
+.quick-note-copy { min-width: 0; }
+.quick-note-copy small, .quick-note-copy p { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-text); font-size: 12px; }
+.quick-note-copy p { margin-top: 4px; }
+.quick-open [role="alert"] { padding: 16px; }

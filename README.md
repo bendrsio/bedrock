@@ -20,6 +20,25 @@ inside it and absolute paths for external notes. Only the root-folder pointer
 is stored in `workspace-location.json` in Electron's user-data directory.
 Appearance and keyboard preferences remain local app settings.
 
+### Find notes and add images
+
+Press **Cmd/Ctrl+P** to find notes by filename, folder path, or content. Use the
+arrow keys and Enter to open a result. Quick-open also appears on Home and in
+the command palette. It searches Markdown files directly, including subfolders.
+Hidden folders and symbolic links are skipped; a footer indicates limited results.
+Search returns up to 80 notes and scans up to 50,000 directory entries. Content
+search reads notes up to 1 MB, with a 32 MB total budget per query.
+
+Paste or drop images into a note, or choose **Attach images…** in the command
+palette or editor context menu. Bedrock copies them into `Attachments/` under
+your root folder and inserts ordinary relative Markdown links. Moving the whole
+folder keeps the links working. Notes opened outside the root must first be
+saved inside it to import images.
+
+PNG, JPEG, GIF, and WebP files are supported: up to 10 images at once, 10 MB each,
+and 25 MB combined. Undo removes the inserted links but retains attachment files,
+which may also be used by other notes.
+
 ### Features
 
 - **Single-window** editor

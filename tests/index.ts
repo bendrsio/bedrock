@@ -7,3 +7,4 @@ import "./workspace.test";
 import "./markdownCore.test";
 import "./noteFiles.test";
 import "./telemetryPrivacy.test";
+import "./workspaceFiles.test";

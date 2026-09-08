@@ -1,6 +1,15 @@
+import { promises as fs } from "node:fs";
+import {
+  isWithin,
+  searchWorkspace,
+  workspaceNote,
+  parseImageBatch,
+  importImages,
+} from "./workspaceFiles";
 import githubMarkdownCss from "github-markdown-css/github-markdown.css";
 import {
   app,
+  clipboard,
   BrowserWindow,
   dialog,
   ipcMain,
@@ -635,6 +644,60 @@ handle("workspace:get", async () => {
   }
   return workspace().getInfo();
 });
+let workspaceSearchSequence = 0;
+handle("workspace:search", async (_event, query: unknown) => {
+  if (typeof query !== "string" || query.length > 200)
+    throw new Error("Search is limited to 200 characters.");
+  const sequence = ++workspaceSearchSequence;
+  const info = await workspace().getInfo();
+  if (!info.rootPath) throw new Error("Choose your Bedrock folder first.");
+  return searchWorkspace(
+    info.rootPath,
+    query,
+    info.recentFiles.map((file) => file.filePath),
+    () => sequence !== workspaceSearchSequence,
+  );
+});
+handle("workspace:open-note", async (_event, relativePath: unknown) => {
+  const target = await workspaceNote(
+    await workspace().defaultDirectory(),
+    relativePath,
+  );
+  const note = await readMarkdownFile(target);
+  if (!note) throw new Error("Unable to open this note.");
+  await rememberFile(note.filePath);
+  return note;
+});
+async function storeImages(documentPath: unknown, images: unknown) {
+  if (
+    typeof documentPath !== "string" ||
+    documentPath !== openedDocument ||
+    !openedRevisions.has(documentPath)
+  )
+    throw new Error("Open a note before adding images.");
+  const batch = parseImageBatch(images);
+  const root = await workspace().defaultDirectory();
+  if (documentPath !== openedDocument)
+    throw new Error("The active note changed. Paste the image again.");
+  return importImages(root, documentPath, batch);
+}
+handle("workspace:import-images", async (_event, raw: unknown) => {
+  if (
+    !raw ||
+    typeof raw !== "object" ||
+    !("documentPath" in raw) ||
+    !("images" in raw)
+  )
+    throw new Error("Invalid image request.");
+  return storeImages(raw.documentPath, raw.images);
+});
+handle("workspace:paste-image", async (_event, documentPath: unknown) => {
+  const image = clipboard.readImage();
+  if (image.isEmpty()) throw new Error("There is no image on the clipboard.");
+  return storeImages(documentPath, [
+    { name: "Pasted image.png", bytes: image.toPNG() },
+  ]);
+});
 handle("workspace:create-note", async () => {
   const note = await workspace().createNote();
   openedDocument = note.filePath;
@@ -932,12 +995,12 @@ async function localResource(raw: unknown) {
   if (!openedDocument || typeof raw !== "string")
     throw new Error("Open a note before resolving resources.");
   const root = await workspace().defaultDirectory();
-  const relative = path.relative(root, openedDocument);
-  const allowed =
-    relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
-      ? path.dirname(openedDocument)
-      : root;
-  return resolveNoteResource(openedDocument, allowed, raw);
+  const documentPath = await fs.realpath(openedDocument);
+  const canonicalRoot = await fs.realpath(root);
+  const allowed = isWithin(canonicalRoot, documentPath)
+    ? canonicalRoot
+    : path.dirname(documentPath);
+  return resolveNoteResource(documentPath, allowed, raw);
 }
 handle("file:resolve-image", async (_event, raw: unknown) => {
   try {
