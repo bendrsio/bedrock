@@ -262,3 +262,21 @@ test.describe("Bedrock Electron pipeline", () => {
     }
   });
 });
+
+
+test("installed paths containing spaces retain trusted IPC", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "bedrock installed path "));
+  const compiled = path.join(directory, "Bedrock Dev");
+  await fs.cp(path.resolve(__dirname, "../../.webpack", process.arch), compiled, { recursive: true });
+  const { app, page, userDataDir } = await launchBedrock({
+    mainEntry: path.join(compiled, "main/index.js"),
+  });
+  try {
+    await expect(page.locator(".cm-editor")).toBeVisible();
+    const workspace = await page.evaluate(() => window.electronAPI.getWorkspace());
+    expect(workspace.rootPath).toBeTruthy();
+  } finally {
+    await disposeBedrock(app, userDataDir);
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});

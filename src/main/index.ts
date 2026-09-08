@@ -49,6 +49,14 @@ import {
   initializeMainTelemetry,
 } from "./observability";
 
+declare const BEDROCK_LOCAL_BUILD: boolean;
+if (BEDROCK_LOCAL_BUILD) {
+  app.setName("Bedrock Dev");
+  app.setPath("userData", path.join(app.getPath("appData"), "Bedrock Dev"));
+  process.env.BEDROCK_ENV = "development";
+  delete process.env.SENTRY_DSN;
+}
+
 const MARKDOWN_DIALOG_FILTER = {
   name: "Markdown Files",
   extensions: ["md"],
@@ -80,7 +88,7 @@ const trustedSender = (
   !mainWindow.isDestroyed() &&
   event.sender === mainWindow.webContents &&
   event.senderFrame === mainWindow.webContents.mainFrame &&
-  event.senderFrame.url === MAIN_WINDOW_WEBPACK_ENTRY;
+  event.senderFrame.url === new URL(MAIN_WINDOW_WEBPACK_ENTRY).href;
 const handle: typeof ipcMain.handle = (channel, listener) =>
   ipcMain.handle(channel, (event, ...args) => {
     if (!trustedSender(event)) throw new Error("Untrusted IPC sender.");

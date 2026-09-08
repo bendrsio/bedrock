@@ -116,6 +116,8 @@ This document gives code-aware agents a concise mental model of Bedrock’s arch
 
 ## Scratchpad — Features & Changes
 
+- 2026-09-08: Added isolated `pnpm install:local` packaging and installation of Bedrock Dev with its own bundle ID and user data. CI is reusable and runs on main; releases require valid tags and passing checks, build both macOS architectures, validate signing/notarization, and upload a complete draft with checksums. Published releases are protected. See `docs/releases.md`; automatic updates and Windows signing remain unimplemented.
+
 - 2026-09-08: Added Cmd/Ctrl+P quick-open for workspace filenames, paths, and contents, plus paste/drop/attach image commands. `src/main/workspaceFiles.ts` owns bounded search and exclusive attachment writes; `QuickOpen.tsx` owns the search dialog. Images live in root `Attachments/` with links relative to the canonical note path. All entry points use the command registry. Added filesystem and Electron tests for portability, aliases, table-cell paste, dirty-state navigation, and IPC boundaries.
 
 - 2026-09-08: Added arrow entry/exit and cell navigation for rendered tables, including quotes, wrapped text, and virtual cells in short rows. Table spacing now uses measured padding to preserve cursor geometry below tables. Reference definitions retain paragraph boundaries and indentation; the command palette groups categories with a compact search layout. Follow-up coverage: `tests/e2e/navigation.e2e.spec.ts`.

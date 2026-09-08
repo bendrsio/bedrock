@@ -29,13 +29,14 @@ export const launchBedrock = async (
     initialExternalOpenPaths?: string[];
     setup?: boolean;
     userDataDir?: string;
+    mainEntry?: string;
   } = {},
 ): Promise<{
   app: ElectronApplication;
   page: Page;
   userDataDir: string;
 }> => {
-  const mainEntry = await findCompiledMainEntry();
+  const mainEntry = options.mainEntry ?? await findCompiledMainEntry();
   const userDataDir =
     options.userDataDir ??
     (await fs.mkdtemp(path.join(os.tmpdir(), "bedrock-e2e-user-data-")));
@@ -108,8 +109,10 @@ export async function disposeBedrock(
   const tracePath = test
     .info()
     .outputPath(`electron-${path.basename(userDataDir)}.zip`);
-  await app.context().tracing.stop({ path: tracePath });
-  await test
+  // Linux quits after its final window closes. There is no live trace to stop then.
+  const canSaveTrace = app.context().pages().length > 0;
+  if (canSaveTrace) await app.context().tracing.stop({ path: tracePath });
+  if (canSaveTrace) await test
     .info()
     .attach("Electron UI trace", {
       path: tracePath,

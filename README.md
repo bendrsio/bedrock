@@ -57,6 +57,7 @@ which may also be used by other notes.
 ### Development
 
 - **Install**: `pnpm install`
+- **Install local app**: `pnpm install:local` builds and opens a separate `~/Applications/Bedrock Dev.app`
 - **Run (dev)**: `pnpm dev` selects available renderer/logger ports starting at 3000/9000
 - **Lint**: `pnpm lint`
 - **Typecheck**: `pnpm typecheck`
@@ -104,3 +105,5 @@ The renderer only talks to Electron via `window.electronAPI` (typed in `src/shar
 - Telemetry excludes note text, file paths, breadcrumbs, screenshots, local variables and native memory dumps.
 
 See [the core verification record](docs/quality/core-pass.md) for feature coverage, tests, and release constraints.
+
+See [builds and releases](docs/releases.md) for local installation, release tags, signing, and update limitations.

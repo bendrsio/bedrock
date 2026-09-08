@@ -25,10 +25,12 @@
     "test:unit": "ts-node --project tsconfig.typecheck.json tests/index.ts",
     "build:e2e": "electron-forge package",
     "test:e2e": "pnpm run build:e2e && playwright test",
-    "test": "pnpm run lint && pnpm run typecheck && pnpm run test:unit && pnpm run test:e2e",
+    "test": "pnpm run lint && pnpm run typecheck && pnpm run test:unit && pnpm run test:release && pnpm run test:e2e",
     "linear:create-issue": "node ./scripts/linear/create-issue.mjs",
     "repo:sync-labels": "node ./scripts/github/sync-labels.mjs",
-    "repo:protect-main": "node ./scripts/github/protect-main.mjs"
+    "repo:protect-main": "node ./scripts/github/protect-main.mjs",
+    "install:local": "node scripts/install-local.mjs",
+    "test:release": "node --test tests/release.test.mjs"
   },
   "keywords": [],
   "author": {
@@ -70,6 +72,7 @@
     "node-loader": "^2.1.0",
     "postcss": "^8.5.28",
     "postcss-loader": "^8.2.1",
+    "semver": "^7.8.5",
     "style-loader": "^3.3.4",
     "tailwindcss": "^3.4.19",
     "ts-loader": "^9.6.2",

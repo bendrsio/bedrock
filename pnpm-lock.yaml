@@ -235,6 +235,9 @@ importers:
       postcss-loader:
         specifier: ^8.2.1
         version: 8.2.1(postcss@8.5.28)(typescript@5.9.3)(webpack@5.110.3(postcss@8.5.28))
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       style-loader:
         specifier: ^3.3.4
         version: 3.3.4(webpack@5.110.3(postcss@8.5.28))

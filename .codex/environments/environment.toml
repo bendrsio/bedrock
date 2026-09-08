@@ -9,3 +9,8 @@ script = ""
 name = "Run Dev"
 icon = "run"
 command = "pnpm install --frozen-lockfile && pnpm dev"
+
+[[actions]]
+name = "Install Bedrock Dev"
+icon = "run"
+command = "pnpm install:local"

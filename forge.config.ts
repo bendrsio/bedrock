@@ -15,7 +15,7 @@ import * as dotenv from "dotenv";
 import { notarize } from "@electron/notarize";
 
 // Only load .env if we're not in CI to avoid conflicting with GitHub Secrets
-if (!process.env.GITHUB_ACTIONS) {
+if (!process.env.GITHUB_ACTIONS && process.env.BEDROCK_LOCAL_BUILD !== "1") {
   dotenv.config({ override: true });
 }
 
@@ -23,9 +23,12 @@ import { mainConfig } from "./webpack.main.config";
 import { rendererConfig } from "./webpack.renderer.config";
 import { findAvailablePort } from "./scripts/dev-port";
 
+const localBuild = process.env.BEDROCK_LOCAL_BUILD === "1";
+
 const execFileAsync = promisify(execFile);
 
 function getOsxNotarizeConfig() {
+  if (localBuild) return undefined;
   const {
     APPLE_API_KEY,
     APPLE_API_KEY_ID,
@@ -59,7 +62,7 @@ function getOsxNotarizeConfig() {
   }
 
   // Local fallback: Apple ID + app-specific password
-  if (APPLE_ID && APPLE_PASSWORD) {
+  if (APPLE_ID && APPLE_PASSWORD && APPLE_TEAM_ID) {
     console.log("Forge: Configuring notarization via Apple ID / Password");
 
     // Clear API Key variables to prevent conflict
@@ -84,9 +87,11 @@ function getOsxNotarizeConfig() {
 const createConfig = (port: number, loggerPort: number): ForgeConfig => ({
   packagerConfig: {
     asar: true,
+    name: localBuild ? "Bedrock Dev" : "Bedrock",
+    appBundleId: localBuild ? "com.electron.bedrock.dev" : "com.electron.bedrock",
     icon: "./src/assets/icon",
     extendInfo: {
-      CFBundleDocumentTypes: [
+      CFBundleDocumentTypes: localBuild ? [] : [
         {
           CFBundleTypeExtensions: ["md"],
           CFBundleTypeName: "Markdown Document",
@@ -95,9 +100,9 @@ const createConfig = (port: number, loggerPort: number): ForgeConfig => ({
         },
       ],
     },
-    osxSign: process.env.APPLE_IDENTITY
+    osxSign: !localBuild && process.env.APPLE_IDENTITY
       ? { identity: process.env.APPLE_IDENTITY }
-      : {},
+      : undefined,
     osxNotarize: getOsxNotarizeConfig(),
   },
   rebuildConfig: {},
@@ -149,8 +154,8 @@ const createConfig = (port: number, loggerPort: number): ForgeConfig => ({
               ...notarizeConfig,
               appPath: artifact,
             });
-            console.log(`Forge: Stapling DMG artifact: ${artifact}`);
-            await execFileAsync("xcrun", ["stapler", "staple", artifact]);
+            console.log(`Forge: Validating stapled DMG artifact: ${artifact}`);
+            await execFileAsync("xcrun", ["stapler", "validate", artifact]);
           }
         }
       }
@@ -192,6 +197,13 @@ const createConfig = (port: number, loggerPort: number): ForgeConfig => ({
 });
 
 export default async (): Promise<ForgeConfig> => {
+  if (process.env.BEDROCK_RELEASE === "1") {
+    if (localBuild) throw new Error("A local build cannot be released.");
+    if (process.platform === "darwin" &&
+        (!process.env.APPLE_IDENTITY || !getOsxNotarizeConfig())) {
+      throw new Error("Release builds require signing and notarization credentials.");
+    }
+  }
   const port = await findAvailablePort(3000);
   const loggerPort = await findAvailablePort(Math.max(9000, port + 1));
   return createConfig(port, loggerPort);
